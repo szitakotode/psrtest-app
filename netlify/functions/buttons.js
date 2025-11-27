@@ -1,5 +1,6 @@
 const Airtable = require("airtable");
 
+// v1.0.1 - Force a change for Netlify cache
 // Make sure to set these in your Netlify site settings
 const { AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME } = process.env;
 
