@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Button Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f9;
+        color: #333;
+      }
+
+      .button-container {
+        margin-top: 20px;
+        display: flex;
+        gap: 20px;
+        justify-content: flex-start; /* Aligns buttons to the left */
+        align-items: flex-start;
+      }
+
+      .column {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 50px; /* For drag-and-drop */
+      }
+
+      button {
+        padding: 12px 16px; /* 80% of original padding */
+        font-size: 13px; /* 80% of original font size */
+        border: none;
+        border-radius: 5px;
+        color: white;
+        cursor: pointer;
+        transition: background-color 0.2s ease-in-out;
+        width: 140px; /* Adjust width to fit controls */
+        position: relative;
+      }
+
+      button.blue {
+        background-color: #40b5ad;
+      }
+
+      button.gray {
+        background-color: #d3d3d3;
+        color: black; /* Adjust text color for visibility */
+      }
+
+      button.weight {
+        background-color: #ccdee0;
+        color: black; /* Adjust text color for visibility */
+      }
+
+      button.copied {
+        background-color: #28a745; /* Green for confirmation */
+        transition: background-color 0.2s ease-in-out;
+      }
+
+      button:hover {
+        opacity: 0.8;
+      }
+
+      button.wide {
+        width: 100%;
+        max-width: 240px; /* Adjust max width to 80% of original */
+      }
+
+      [data-hidden="true"] {
+        display: none;
+      }
+
+      /* Styles for Edit/Delete controls */
+      .controls {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        display: none;
+      }
+      button:hover .controls {
+        display: block;
+      }
+      .control-btn {
+        background: none;
+        border: none;
+        color: white;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 2px;
+        width: auto;
+      }
+
+      /* Modal Styles */
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0, 0, 0, 0.4);
+      }
+      .modal-content {
+        background-color: #fefefe;
+        margin: 15% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+        max-width: 500px;
+      }
+      .close-btn {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .modal-content input,
+      .modal-content textarea,
+      .modal-content select {
+        width: 100%;
+        padding: 8px;
+        margin: 8px 0;
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Display-wide Hello! 👋 button -->
+    <button class="wide gray" id="add-button-hu">
+      Add New Hungarian Button
+    </button>
+    <button class="wide gray" id="add-button-en">Add New English Button</button>
+
+    <div class="button-container">
+      <!-- First column: Hungarian buttons -->
+      <div class="column" id="column-hu"></div>
+
+      <!-- Second column: English buttons -->
+      <div class="column" id="column-en"></div>
+    </div>
+
+    <!-- Modal for Add/Edit Button -->
+    <div id="button-modal" class="modal">
+      <div class="modal-content">
+        <span class="close-btn">&times;</span>
+        <h2 id="modal-title">Add Button</h2>
+        <form id="button-form">
+          <input type="hidden" id="button-id" />
+          <input type="hidden" id="button-column" />
+          <label for="button-label">Button Label:</label>
+          <input type="text" id="button-label" required />
+
+          <label for="button-copy-text">Text to Copy:</label>
+          <textarea id="button-copy-text" rows="4" required></textarea>
+
+          <label for="button-color">Button Color:</label>
+          <select id="button-color">
+            <option value="blue">Blue</option>
+            <option value="gray">Gray</option>
+            <option value="weight">Light Blue (Weight)</option>
+          </select>
+
+          <button type="submit">Save Button</button>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      const API_URL = "/api";
+
+      /**
+       * Copies the provided text to the clipboard.
+       * @param {string} text The text to copy.
+       * @param {HTMLElement} button The button element that was clicked.
+       */
+      function copyText(text, button) {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+
+        // Add copied class for visual feedback
+        button.classList.add("copied");
+
+        // Remove copied class after 500ms for a shorter, natural feel
+        setTimeout(() => button.classList.remove("copied"), 500);
+      }
+
+      function createButtonElement(buttonData) {
+        const button = document.createElement("button");
+        button.className = buttonData.color_class;
+        button.dataset.id = buttonData.id;
+        button.dataset.copyText = buttonData.copy_text;
+
+        // Sanitize label to prevent HTML injection by treating it as text
+        const labelNode = document.createTextNode(buttonData.label);
+
+        button.innerHTML = `
+            <div class="controls">
+                <span class="control-btn edit-btn">✏️</span>
+                <span class="control-btn delete-btn">🗑️</span>
+            </div>
+        `;
+        button.prepend(labelNode);
+
+        // Main button click to copy text
+        button.addEventListener("click", (e) => {
+          // Prevent copy if an icon was clicked
+          if (e.target.classList.contains("control-btn")) return;
+          copyText(button.dataset.copyText, button);
+        });
+
+        // Edit button click
+        button
+          .querySelector(".edit-btn")
+          .addEventListener("click", () => openModal(buttonData));
+
+        // Delete button click
+        button
+          .querySelector(".delete-btn")
+          .addEventListener("click", () => deleteButton(buttonData.id));
+
+        return button;
+      }
+
+      async function fetchAndRenderButtons() {
+        const response = await fetch(`${API_URL}/buttons`);
+        const { data } = await response.json();
+
+        const huColumn = document.getElementById("column-hu");
+        const enColumn = document.getElementById("column-en");
+        huColumn.innerHTML = "";
+        enColumn.innerHTML = "";
+
+        data.forEach((buttonData) => {
+          const buttonEl = createButtonElement(buttonData);
+          if (buttonData.column === "hu") {
+            huColumn.appendChild(buttonEl);
+          } else {
+            enColumn.appendChild(buttonEl);
+          }
+        });
+      }
+
+      // --- Modal Logic ---
+      const modal = document.getElementById("button-modal");
+      const form = document.getElementById("button-form");
+
+      function openModal(buttonData = null) {
+        form.reset();
+        if (buttonData) {
+          // Editing existing button
+          document.getElementById("modal-title").innerText = "Edit Button";
+          document.getElementById("button-id").value = buttonData.id;
+          document.getElementById("button-label").value = buttonData.label;
+          document.getElementById("button-copy-text").value =
+            buttonData.copy_text;
+          document.getElementById("button-color").value =
+            buttonData.color_class;
+        } else {
+          // Adding new button
+          document.getElementById("modal-title").innerText = "Add Button";
+          document.getElementById("button-id").value = "";
+        }
+        modal.style.display = "block";
+      }
+
+      function closeModal() {
+        modal.style.display = "none";
+      }
+
+      // --- CRUD Operations ---
+      async function saveButton(event) {
+        event.preventDefault();
+        const id = document.getElementById("button-id").value;
+        const buttonData = {
+          label: document.getElementById("button-label").value,
+          copy_text: document.getElementById("button-copy-text").value,
+          color_class: document.getElementById("button-color").value,
+          column: document.getElementById("button-column").value,
+        };
+
+        const method = id ? "PUT" : "POST";
+        const url = id ? `${API_URL}/buttons/${id}` : `${API_URL}/buttons`;
+
+        if (!id) {
+          // For new buttons, determine sort order
+          const columnButtons = document.querySelectorAll(
+            `#column-${buttonData.column} button`
+          );
+          buttonData.sort_order = columnButtons.length;
+        }
+
+        await fetch(url, {
+          method: method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buttonData),
+        });
+
+        closeModal();
+        fetchAndRenderButtons();
+      }
+
+      async function deleteButton(id) {
+        if (!confirm("Are you sure you want to delete this button?")) return;
+        await fetch(`${API_URL}/buttons/${id}`, { method: "DELETE" });
+        fetchAndRenderButtons();
+      }
+
+      async function saveOrder(columnId) {
+        const column = document.getElementById(columnId);
+        const order = Array.from(column.children).map((btn) => btn.dataset.id);
+        await fetch(`${API_URL}/buttons/reorder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order }),
+        });
+      }
+
+      // This event listener runs when the HTML document has been completely loaded.
+      document.addEventListener("DOMContentLoaded", async () => {
+        await fetchAndRenderButtons();
+
+        // Modal listeners
+        document
+          .querySelector(".close-btn")
+          .addEventListener("click", closeModal);
+        window.addEventListener("click", (event) => {
+          if (event.target == modal) closeModal();
+        });
+        form.addEventListener("submit", saveButton);
+
+        // "Add button" listeners
+        document
+          .getElementById("add-button-hu")
+          .addEventListener("click", () => {
+            document.getElementById("button-column").value = "hu";
+            openModal();
+          });
+        document
+          .getElementById("add-button-en")
+          .addEventListener("click", () => {
+            document.getElementById("button-column").value = "en";
+            openModal();
+          });
+
+        // Enable drag-and-drop
+        const huColumn = document.getElementById("column-hu");
+        const enColumn = document.getElementById("column-en");
+        new Sortable(huColumn, {
+          animation: 150,
+          onEnd: () => saveOrder("column-hu"),
+        });
+        new Sortable(enColumn, {
+          animation: 150,
+          onEnd: () => saveOrder("column-en"),
+        });
+      });
+    </script>
+  </body>
+</html>
